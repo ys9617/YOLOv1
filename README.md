@@ -22,7 +22,10 @@ YOLO v1 network has 24 convolutional layers followed by 2 fully connected layers
 
 ## PyTorch YOLO v1 Implemention and Loading Pre-trained Weights
 
-Model weights file can download from [here](https://drive.google.com/drive/folders/0B1tW_VtY7onidEwyQ2FtQVplWEU)
+
+Model weights file can download from [here, yolo-full.weights](https://drive.google.com/drive/folders/0B1tW_VtY7onidEwyQ2FtQVplWEU)
+
+Convert Darknet YOLO v1 weights to PyTorch weights.
 
 ```python
 def load_weights(file, net):
@@ -72,9 +75,50 @@ def load_weights(file, net):
         layer.weight.data.copy_(conn_weights)
 ```
 
+## Converting PyTorch to ONNX and OpenVINO
+
+```python
+def to_onnx(net, output, batch_size, n_channel, height, width):
+    x = torch.randn(batch_size, n_channel, height, width, requires_grad=True)
+
+    torch_out = net(x)
+
+    torch.onnx.export(net, x, output,
+                    export_params=True,
+                    opset_version=11,
+                    do_constant_folding=True,
+                    input_names = ['input'],
+                    output_names = ['output'],
+                    dynamic_axes={'input' : {0 : 'batch_size'},
+                                  'output' : {0 : 'batch_size'}})
+
+    onnx_model = onnx.load(output)
+    onnx.checker.check_model(onnx_model)
+
+    ort_session = onnxruntime.InferenceSession(output)
+
+    def to_numpy(tensor):
+        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+
+    ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x)}
+    ort_outs = ort_session.run(None, ort_inputs)
+
+    np.testing.assert_allclose(to_numpy(torch_out), ort_outs[0], rtol=1e-03, atol=1e-05)
+
+    print("Exported model has been tested with ONNXRuntime, and the result looks good!")
+```
+
+
+
+## Performance Comparison Between PyTorch, ONNX and OpenVINO
+
 
 ## Reference
 
 * [You Only Look Once: Unified, Real-Time Object Detection](https://arxiv.org/abs/1506.02640) by Joseph Redmon et al
 
+* [Darknet, an open source neural network framework written in C and CUDA](https://github.com/pjreddie/darknet)
+
 * [Darkflow, YOLO v1 & v2 Tensorflow implementation](https://github.com/thtrieu/darkflow)
+
+* [EXPORTING A MODEL FROM PYTORCH TO ONNX AND RUNNING IT USING ONNX RUNTIME](https://pytorch.org/tutorials/advanced/super_resolution_with_onnxruntime.html)
